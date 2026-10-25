@@ -1,0 +1,20 @@
+# Local development database only. Do not use these credentials in production.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: skybreak
+      POSTGRES_PASSWORD: skybreak_dev_password
+      POSTGRES_DB: skybreak
+    ports:
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
+    volumes:
+      - skybreak_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skybreak -d skybreak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  skybreak_pgdata:

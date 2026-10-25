@@ -1,0 +1,199 @@
+// Skybreak Infra — database schema (PostgreSQL, Prisma 7)
+// The connection URL is supplied by prisma.config.ts, not here.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AdminRole {
+  OWNER
+  ADMIN
+  EDITOR
+}
+
+enum ProjectCategory {
+  RESIDENTIAL
+  COMMERCIAL
+  DEVELOPMENT
+}
+
+enum ProjectStatus {
+  CONCEPT
+  PLANNED
+  UNDER_CONSTRUCTION
+  COMPLETED
+}
+
+enum EnquiryStatus {
+  NEW
+  CONTACTED
+  IN_PROGRESS
+  CLOSED
+}
+
+model AdminUser {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String
+  passwordHash String
+  role         AdminRole     @default(ADMIN)
+  isActive     Boolean       @default(true)
+  lastLoginAt  DateTime?
+  sessions     Session[]
+  notes        EnquiryNote[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+/// Server-side session. Only a SHA-256 hash of the cookie token is stored.
+model Session {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  csrfToken String
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Project {
+  id             String          @id @default(cuid())
+  slug           String          @unique
+  title          String
+  summary        String
+  description    String          @db.Text
+  category       ProjectCategory
+  status         ProjectStatus   @default(PLANNED)
+  location       String?
+  coverImageUrl  String
+  coverImageAlt  String
+  /// Array of { label: string, value: string }
+  specifications Json            @default("[]")
+  /// True for illustrative demo content that is not real company work.
+  isSample       Boolean         @default(false)
+  isPublished    Boolean         @default(false)
+  isFeatured     Boolean         @default(false)
+  sortOrder      Int             @default(0)
+  seoTitle       String?
+  seoDescription String?
+  images         ProjectImage[]
+  services       Service[]       @relation("ProjectServices")
+  enquiries      Enquiry[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([category])
+  @@index([isPublished, sortOrder])
+  @@index([isFeatured])
+}
+
+model ProjectImage {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([projectId, sortOrder])
+}
+
+model Service {
+  id               String    @id @default(cuid())
+  slug             String    @unique
+  title            String
+  shortDescription String
+  intro            String    @db.Text
+  heroImageUrl     String
+  heroImageAlt     String
+  /// Icon key understood by the front-end icon map
+  icon             String    @default("building")
+  /// string[]
+  features         Json      @default("[]")
+  /// Array of { title: string, description: string }
+  workflow         Json      @default("[]")
+  /// Array of { question: string, answer: string }
+  faqs             Json      @default("[]")
+  isPublished      Boolean   @default(true)
+  sortOrder        Int       @default(0)
+  seoTitle         String?
+  seoDescription   String?
+  projects         Project[] @relation("ProjectServices")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([isPublished, sortOrder])
+}
+
+model Enquiry {
+  id                 String        @id @default(cuid())
+  /// Client-generated idempotency key to prevent duplicate submissions
+  clientSubmissionId String?       @unique
+  fullName           String
+  email              String
+  phone              String
+  projectType        String
+  projectLocation    String
+  budgetRange        String?
+  expectedStart      String?
+  message            String        @db.Text
+  consent            Boolean
+  status             EnquiryStatus @default(NEW)
+  sourcePath         String?
+  projectId          String?
+  project            Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Salted hash of the submitter IP (for abuse tracing without storing raw IPs)
+  ipHash             String?
+  userAgent          String?
+  emailNotified      Boolean       @default(false)
+  notes              EnquiryNote[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([email])
+}
+
+model EnquiryNote {
+  id        String     @id @default(cuid())
+  enquiryId String
+  enquiry   Enquiry    @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    AdminUser? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  body      String     @db.Text
+  createdAt DateTime   @default(now())
+
+  @@index([enquiryId, createdAt])
+}
+
+/// Single-row table (id = "default") holding editable company details.
+model CompanySetting {
+  id             String   @id @default("default")
+  companyName    String   @default("Skybreak Infra")
+  tagline        String   @default("Building Dreams. Creating Landmarks.")
+  contactEmail   String?
+  phone          String?
+  whatsapp       String?
+  address        String?
+  officeHours    String?
+  /// { facebook?, instagram?, linkedin?, youtube?, x? }
+  socialLinks    Json     @default("{}")
+  logoUrl        String?
+  seoTitle       String?
+  seoDescription String?
+  ogImageUrl     String?
+  updatedAt      DateTime @updatedAt
+}

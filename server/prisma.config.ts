@@ -1,0 +1,18 @@
+import path from "node:path";
+import { config as loadEnv } from "dotenv";
+import { defineConfig } from "prisma/config";
+
+// The repository keeps a single .env at the project root.
+loadEnv({ path: path.resolve(import.meta.dirname, "../.env"), quiet: true });
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: {
+    path: "prisma/migrations",
+    seed: "tsx prisma/seed.ts",
+  },
+  datasource: {
+    // `prisma generate` does not connect, so a placeholder keeps builds working without a DB.
+    url: process.env.DATABASE_URL ?? "postgresql://placeholder:placeholder@localhost:5432/placeholder",
+  },
+});
