@@ -28,6 +28,8 @@ Base path: `/api`. All request and response bodies are JSON unless stated otherw
 | 422    | `VALIDATION_ERROR`                        | Field validation failed (see `details`)    |
 | 429    | `RATE_LIMITED`                            | Too many requests                          |
 | 500    | `INTERNAL_ERROR`                          | Unexpected server error (details are logged, not returned) |
+| 503    | `DATABASE_UNAVAILABLE`                    | PostgreSQL cannot be reached right now (`Retry-After: 30`); retry later |
+| 503    | `API_UNAVAILABLE`                         | Local development only: the Vite proxy could not reach the API process |
 
 **Pagination**: `?page=1&pageSize=12` (max `pageSize` 100).
 
@@ -103,6 +105,35 @@ Full service including `intro`, `features[]`, `workflow[]`, `faqs[]` and up to s
 - `website` is a honeypot and must be empty; submissions less than 2.5 s after `formStartedAt` are rejected (`400`).
 - `emailNotified: false` means the enquiry was saved but no notification email was sent (SMTP not configured or delivery failed).
 
+#### Contact rules (enforced on the server)
+
+- `phone` is optional. When present it must be an **Indian mobile number** — 10 digits starting with
+  6–9, with optional `+91`, `0091`, `91` or `0` prefix; spaces, dashes and brackets are ignored. It is
+  stored normalised as `+91XXXXXXXXXX`. Implausible numbers (all one digit, straight runs such as
+  `9876543210`) are rejected.
+- Without `phone`, `emailCode` is **required**: a 6-digit code obtained from
+  `POST /api/enquiries/email-code` for the same email. The enquiry is saved with `emailVerified: true`.
+- The email domain must be able to receive mail (DNS MX/A lookup; skipped on DNS errors;
+  disable with `EMAIL_DOMAIN_CHECK=false`).
+- **Limits:** at most `maxEnquiriesPerEmail` enquiries per email and `maxEnquiriesPerPhone` per mobile
+  within `enquiryLimitWindowDays` (defaults 3 / 3 / 30; `0` = unlimited; set in Admin → Settings).
+  Exceeding a limit returns `429 { code: "ENQUIRY_LIMIT", details: [{ path: "email" | "phone" }] }`.
+  An idempotent resubmission (same `clientSubmissionId`) still returns the original record.
+
+### `POST /api/enquiries/email-code`
+
+Body `{ "email": "…" }`. Sends a 6-digit code (valid 10 minutes, 5 attempts; only the newest code is
+valid; only an HMAC of it is stored).
+
+- `200 { data: { expiresInSeconds: 600, resendAfterSeconds: 60, devCode? } }` — `devCode` is returned
+  **only** in development/test when email sending is disabled.
+- `429 CODE_COOLDOWN` (`details.retryAfter` seconds) — one code per 60 s per email; `429 CODE_LIMIT` —
+  more than 5 codes per hour; `429 RATE_LIMITED` — more than 6 requests per 15 min per client.
+- `503 EMAIL_UNAVAILABLE` — production without SMTP: the customer is asked for a mobile number.
+- `502 EMAIL_SEND_FAILED` — the SMTP provider rejected the message.
+
+Code errors on `POST /api/enquiries` are `422` with `details: [{ path: "emailCode" }]`.
+
 ### `GET /sitemap.xml`, `GET /robots.txt`
 Generated from published content using `PUBLIC_SITE_URL`.
 
@@ -176,4 +207,4 @@ Service body: `title, slug?, shortDescription, intro, heroImageUrl, heroImageAlt
 
 ### Settings (ADMIN+)
 `GET /api/admin/settings`, `PUT /api/admin/settings` with
-`companyName, tagline, contactEmail?, phone?, whatsapp?, address?, officeHours?, socialLinks: { facebook?, instagram?, linkedin?, youtube?, x? }, logoUrl?, seoTitle?, seoDescription?, ogImageUrl?`. Empty strings are stored as `null` and hidden on the website.
+`companyName, tagline, contactEmail?, phone?, whatsapp?, address?, officeHours?, socialLinks: { facebook?, instagram?, linkedin?, youtube?, x? }, logoUrl?, seoTitle?, seoDescription?, ogImageUrl?, maxEnquiriesPerEmail, maxEnquiriesPerPhone, enquiryLimitWindowDays`. The enquiry limits are admin-only and never exposed by the public `GET /api/settings`. Empty strings are stored as `null` and hidden on the website.

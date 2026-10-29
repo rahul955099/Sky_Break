@@ -5,7 +5,7 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { corsOrigins, env, siteUrl } from "./config/env.js";
+import { corsOrigins, env, isProduction, siteUrl } from "./config/env.js";
 import { apiLimiter } from "./middleware/rateLimit.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.js";
 import { publicRouter } from "./routes/public.routes.js";
@@ -21,7 +21,27 @@ const clientDist = path.resolve(here, "../../client/dist");
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
-  if (env.TRUST_PROXY) app.set("trust proxy", 1);
+  // Hop count (or true/false) — see TRUST_PROXY in .env.example.
+  if (env.TRUST_PROXY !== false) app.set("trust proxy", env.TRUST_PROXY);
+
+  // Liveness probe for the hosting platform: answers without touching the database, so a
+  // database outage is reported by /api/health instead of triggering restart loops.
+  app.get("/health", (_req, res) => {
+    res.set("Cache-Control", "no-store").json({ status: "ok", uptime: Math.round(process.uptime()) });
+  });
+
+  if (isProduction) {
+    // Minimal access log: no query strings, bodies, cookies, headers or IP addresses.
+    app.use((req, res, next) => {
+      const start = process.hrtime.bigint();
+      res.on("finish", () => {
+        const ms = Number(process.hrtime.bigint() - start) / 1e6;
+        const path = req.originalUrl.split("?")[0];
+        if (path !== "/health") console.log(`${req.method} ${path} ${res.statusCode} ${ms.toFixed(0)}ms`);
+      });
+      next();
+    });
+  }
 
   app.use(
     helmet({
@@ -74,7 +94,11 @@ export function createApp() {
       maxAge: "30d",
       immutable: true,
       fallthrough: false,
-      setHeaders: (res) => res.setHeader("X-Content-Type-Options", "nosniff"),
+      setHeaders: (res) => {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        // Public images may be embedded by the separately hosted front end.
+        res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      },
     }),
   );
 

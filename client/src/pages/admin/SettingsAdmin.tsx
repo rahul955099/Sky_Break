@@ -5,13 +5,13 @@ import { clearApiCache, useApi } from "../../hooks/useApi";
 import { AdminPageHeader, errorText, ImageField, useToast } from "../../components/admin/AdminUi";
 import { Button } from "../../components/ui/Button";
 import { ErrorState, Spinner } from "../../components/ui/misc";
-import type { CompanySettings, SocialLinks } from "../../types/api";
+import type { AdminCompanySettings, SocialLinks } from "../../types/api";
 
-type FormValues = Omit<CompanySettings, "socialLinks"> & { socialLinks: Required<{ [K in keyof SocialLinks]: string }> };
+type FormValues = Omit<AdminCompanySettings, "socialLinks"> & { socialLinks: Required<{ [K in keyof SocialLinks]: string }> };
 
 const SOCIAL: (keyof SocialLinks)[] = ["linkedin", "instagram", "facebook", "youtube", "x"];
 
-const toForm = (s: CompanySettings): FormValues => ({
+const toForm = (s: AdminCompanySettings): FormValues => ({
   ...s,
   contactEmail: s.contactEmail ?? "",
   phone: s.phone ?? "",
@@ -27,7 +27,7 @@ const toForm = (s: CompanySettings): FormValues => ({
 
 export default function SettingsAdmin() {
   const toast = useToast();
-  const { data, loading, error, reload } = useApi<CompanySettings>("/admin/settings", { cacheable: false });
+  const { data, loading, error, reload } = useApi<AdminCompanySettings>("/admin/settings", { cacheable: false });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { register, control, handleSubmit, reset, formState } = useForm<FormValues>();
 
@@ -38,7 +38,7 @@ export default function SettingsAdmin() {
   const onSubmit = handleSubmit(async (v) => {
     setErrors({});
     try {
-      const res = await api.put<CompanySettings>("/admin/settings", v);
+      const res = await api.put<AdminCompanySettings>("/admin/settings", v);
       reset(toForm(res.data));
       clearApiCache("/settings");
       toast("success", "Settings saved. Reload the public site to see changes.");
@@ -91,6 +91,33 @@ export default function SettingsAdmin() {
         <section className="admin-card space-y-5 p-6">
           <h2 className="font-display font-bold">Social media</h2>
           {SOCIAL.map((k) => field(`socialLinks.${k}`, k === "x" ? "X (Twitter)" : k[0]!.toUpperCase() + k.slice(1), { type: "url" }))}
+        </section>
+        <section className="admin-card space-y-5 p-6 xl:col-span-2" aria-labelledby="limits-heading">
+          <div>
+            <h2 id="limits-heading" className="font-display font-bold">
+              Enquiry limits
+            </h2>
+            <p className="mt-1 text-sm text-muted">
+              Maximum enquiries accepted from the same email address or Indian mobile number within the time window. Use 0 for no limit.
+            </p>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-3">
+            {(
+              [
+                ["maxEnquiriesPerEmail", "Per email address", 0, 1000],
+                ["maxEnquiriesPerPhone", "Per mobile number", 0, 1000],
+                ["enquiryLimitWindowDays", "Time window (days)", 1, 3650],
+              ] as const
+            ).map(([name, label, min, max]) => (
+              <div key={name}>
+                <label htmlFor={name} className="field-label">
+                  {label}
+                </label>
+                <input id={name} type="number" min={min} max={max} step={1} className="field-input" {...register(name, { valueAsNumber: true })} />
+                {errors[name] && <p className="field-error">{errors[name]}</p>}
+              </div>
+            ))}
+          </div>
         </section>
         <section className="admin-card space-y-5 p-6">
           <h2 className="font-display font-bold">SEO defaults</h2>

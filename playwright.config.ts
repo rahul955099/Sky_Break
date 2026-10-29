@@ -39,6 +39,8 @@ export default defineConfig({
         CLIENT_URL: `http://localhost:${WEB_PORT}`,
         PUBLIC_SITE_URL: `http://localhost:${WEB_PORT}`,
         EMAIL_PROVIDER: "none",
+        // Test addresses use the reserved example.test domain, which has no MX records.
+        EMAIL_DOMAIN_CHECK: "false",
         UPLOAD_DIR: "uploads-test",
       },
     },

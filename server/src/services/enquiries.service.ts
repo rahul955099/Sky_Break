@@ -1,11 +1,16 @@
 import { prisma, type EnquiryStatus, type Prisma } from "../db.js";
-import { notFound } from "../utils/http.js";
+import { HttpError, notFound } from "../utils/http.js";
 import { sendEnquiryNotification } from "./email.service.js";
+import { getSettings } from "./settings.service.js";
+import { checkEnquiryCode, consumeEnquiryCode } from "./verification.service.js";
 
 export interface NewEnquiry {
   fullName: string;
   email: string;
-  phone: string;
+  /** Normalised Indian mobile (+91XXXXXXXXXX) or null when the email is verified instead. */
+  phone: string | null;
+  /** One-time code proving ownership of the email (required when phone is null). */
+  emailCode?: string;
   projectType: string;
   projectLocation: string;
   budgetRange: string | null;
@@ -26,18 +31,55 @@ export async function createEnquiry(input: NewEnquiry) {
     if (existing) return { enquiry: existing, duplicate: true };
   }
 
+  await enforceEnquiryLimits(input.email, input.phone);
+
+  // Verify the email code (if any) before writing; wrong attempts are recorded even on failure.
+  const verificationId = input.emailCode ? await checkEnquiryCode(input.email, input.emailCode) : null;
+  if (!input.phone && !verificationId) {
+    throw new HttpError(422, "VALIDATION_ERROR", "Please verify your email address or enter an Indian mobile number.", [
+      { path: "emailCode", message: "Without an Indian mobile number, please verify your email with the code we send you" },
+    ]);
+  }
+
   const project = input.projectSlug
     ? await prisma.project.findUnique({ where: { slug: input.projectSlug }, select: { id: true } })
     : null;
 
-  const { projectSlug: _p, userAgent, ...data } = input;
-  const enquiry = await prisma.enquiry.create({
-    data: { ...data, userAgent: userAgent?.slice(0, 255), projectId: project?.id ?? null },
+  const { projectSlug: _p, emailCode: _c, userAgent, ...data } = input;
+  const enquiry = await prisma.$transaction(async (tx) => {
+    if (verificationId) await consumeEnquiryCode(tx, verificationId);
+    return tx.enquiry.create({
+      data: { ...data, emailVerified: Boolean(verificationId), userAgent: userAgent?.slice(0, 255), projectId: project?.id ?? null },
+    });
   });
 
   const notified = await sendEnquiryNotification(enquiry);
   if (notified) await prisma.enquiry.update({ where: { id: enquiry.id }, data: { emailNotified: true } });
   return { enquiry: { ...enquiry, emailNotified: notified }, duplicate: false };
+}
+
+/**
+ * Per-email and per-mobile limits within a rolling window, configured in Admin → Settings
+ * (0 = unlimited). Counted against stored enquiries, so they hold across devices and networks.
+ */
+async function enforceEnquiryLimits(email: string, phone: string | null) {
+  const { maxEnquiriesPerEmail, maxEnquiriesPerPhone, enquiryLimitWindowDays } = await getSettings();
+  const since = new Date(Date.now() - enquiryLimitWindowDays * 86_400_000);
+  const [byEmail, byPhone] = await Promise.all([
+    maxEnquiriesPerEmail > 0 ? prisma.enquiry.count({ where: { email, createdAt: { gte: since } } }) : 0,
+    maxEnquiriesPerPhone > 0 && phone ? prisma.enquiry.count({ where: { phone, createdAt: { gte: since } } }) : 0,
+  ]);
+  const tail = "Our team will be in touch with you. If your enquiry is urgent, please contact us directly.";
+  if (maxEnquiriesPerEmail > 0 && byEmail >= maxEnquiriesPerEmail) {
+    throw new HttpError(429, "ENQUIRY_LIMIT", `We've already received the maximum number of enquiries from this email address recently. ${tail}`, [
+      { path: "email", message: "Enquiry limit reached for this email address" },
+    ]);
+  }
+  if (phone && maxEnquiriesPerPhone > 0 && byPhone >= maxEnquiriesPerPhone) {
+    throw new HttpError(429, "ENQUIRY_LIMIT", `We've already received the maximum number of enquiries from this mobile number recently. ${tail}`, [
+      { path: "phone", message: "Enquiry limit reached for this mobile number" },
+    ]);
+  }
 }
 
 export async function listEnquiries(q: { status?: EnquiryStatus; search?: string; page: number; pageSize: number }) {

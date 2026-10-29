@@ -23,6 +23,15 @@ export const loginLimiter = rateLimit({
   message: message("Too many sign-in attempts. Please wait 15 minutes and try again."),
 });
 
+export const emailCodeLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 6,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip,
+  message: message("Too many verification codes requested. Please wait a few minutes and try again."),
+});
+
 export const enquiryLimiter = rateLimit({
   windowMs: 15 * 60_000,
   limit: 5,

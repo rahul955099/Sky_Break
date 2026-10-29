@@ -1,0 +1,18 @@
+# Netlify — front end only (React/Vite SPA).
+# The Express API runs on a Node host (see render.yaml / docs/DEPLOYMENT.md); Netlify proxies
+# /api/* to it. Proxy rules, the SPA fallback and security headers are generated into
+# client/dist by client/scripts/write-deploy-config.mjs from the API_PROXY_ORIGIN variable.
+#
+# Required Netlify environment variables (Site configuration → Environment variables):
+#   API_PROXY_ORIGIN      https://<your-backend-host>      (no trailing slash, no path)
+#   VITE_PUBLIC_SITE_URL  https://<your-site-domain>
+# Do NOT set NODE_ENV=production here: the build needs devDependencies (Vite, TypeScript).
+
+[build]
+  # Repository root: npm workspaces install from the single root package-lock.json.
+  base = ""
+  command = "npm run build -w client"
+  publish = "client/dist"
+
+[build.environment]
+  NODE_VERSION = "22"

@@ -12,6 +12,17 @@ describe("public API", () => {
     expect(res.body.data).toMatchObject({ status: "ok", database: "up", email: "disabled" });
   });
 
+  it("GET /health answers without touching the database (liveness probe)", async () => {
+    const res = await request(app).get("/health").expect(200);
+    expect(res.body.status).toBe("ok");
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("returns JSON (never the SPA shell) for unknown API paths", async () => {
+    const res = await request(app).get("/api/does-not-exist").expect(404);
+    expect(res.headers["content-type"]).toContain("application/json");
+  });
+
   it("sets security headers and hides the framework", async () => {
     const res = await request(app).get("/api/health");
     expect(res.headers["x-powered-by"]).toBeUndefined();

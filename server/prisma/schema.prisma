@@ -143,7 +143,10 @@ model Enquiry {
   clientSubmissionId String?       @unique
   fullName           String
   email              String
-  phone              String
+  /// Indian mobile in E.164 form (+91XXXXXXXXXX). Null when the customer verified their email instead.
+  phone              String?
+  /// True when the email address was confirmed with a one-time code.
+  emailVerified      Boolean       @default(false)
   projectType        String
   projectLocation    String
   budgetRange        String?
@@ -164,7 +167,24 @@ model Enquiry {
 
   @@index([status])
   @@index([createdAt])
-  @@index([email])
+  @@index([email, createdAt])
+  @@index([phone, createdAt])
+}
+
+/// One-time email verification codes. Only an HMAC of the code is stored.
+model EmailVerification {
+  id         String    @id @default(cuid())
+  email      String
+  codeHash   String
+  purpose    String    @default("ENQUIRY")
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  ipHash     String?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
 }
 
 model EnquiryNote {
@@ -181,19 +201,23 @@ model EnquiryNote {
 
 /// Single-row table (id = "default") holding editable company details.
 model CompanySetting {
-  id             String   @id @default("default")
-  companyName    String   @default("Skybreak Infra")
-  tagline        String   @default("Building Dreams. Creating Landmarks.")
-  contactEmail   String?
-  phone          String?
-  whatsapp       String?
-  address        String?
-  officeHours    String?
+  id                     String   @id @default("default")
+  companyName            String   @default("Skybreak Infra")
+  tagline                String   @default("Building Dreams. Creating Landmarks.")
+  contactEmail           String?
+  phone                  String?
+  whatsapp               String?
+  address                String?
+  officeHours            String?
   /// { facebook?, instagram?, linkedin?, youtube?, x? }
-  socialLinks    Json     @default("{}")
-  logoUrl        String?
-  seoTitle       String?
-  seoDescription String?
-  ogImageUrl     String?
-  updatedAt      DateTime @updatedAt
+  socialLinks            Json     @default("{}")
+  logoUrl                String?
+  seoTitle               String?
+  seoDescription         String?
+  ogImageUrl             String?
+  /// Enquiry limits per email address / mobile number within the window. 0 = unlimited.
+  maxEnquiriesPerEmail   Int      @default(3)
+  maxEnquiriesPerPhone   Int      @default(3)
+  enquiryLimitWindowDays Int      @default(30)
+  updatedAt              DateTime @updatedAt
 }

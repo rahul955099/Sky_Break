@@ -8,7 +8,7 @@
     "server"
   ],
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev": "node scripts/dev-preflight.mjs && concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w server && npm run build -w client",
     "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
+    "db:check": "node scripts/dev-preflight.mjs",
     "db:migrate": "npm run db:migrate -w server",
     "db:deploy": "npm run db:deploy -w server",
     "db:seed": "npm run db:seed -w server",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isImplausibleMobile, MOBILE_ERROR, normalizeIndianMobile } from "../utils/contact.js";
 
 const trimmed = (max: number) => z.string().trim().max(max);
 const optionalText = (max: number) =>
@@ -75,12 +76,50 @@ export const PROJECT_TYPES = [
   "Other",
 ] as const;
 
-export const enquiryCreate = z.object({
+const enquiryEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(200)
+  .pipe(z.email("Please enter a valid email address"));
+
+/** Optional Indian mobile, normalised to +91XXXXXXXXXX; empty → null. */
+const indianMobile = z
+  .string()
+  .trim()
+  .max(30)
+  .optional()
+  .nullable()
+  .transform((v, ctx) => {
+    if (!v) return null;
+    const e164 = normalizeIndianMobile(v);
+    if (!e164) {
+      ctx.addIssue({ code: "custom", message: MOBILE_ERROR });
+      return z.NEVER;
+    }
+    if (isImplausibleMobile(e164)) {
+      ctx.addIssue({ code: "custom", message: "This doesn't look like a real mobile number. Please check it." });
+      return z.NEVER;
+    }
+    return e164;
+  });
+
+export const emailCodeRequest = z.object({
+  email: enquiryEmail,
+  website: z.string().max(0, "Spam detected").optional(),
+});
+
+export const enquiryCreate = z
+  .object({
   fullName: trimmed(120).min(2, "Please enter your full name"),
-  email: z.email("Please enter a valid email address").trim().toLowerCase().max(200),
-  phone: trimmed(30)
-    .min(7, "Please enter a valid phone number")
-    .regex(/^[+()\d\s.-]+$/, "Phone number may contain digits, spaces, +, -, ( and ) only"),
+  email: enquiryEmail,
+  phone: indianMobile,
+  /** 6-digit code from POST /enquiries/email-code — required when no mobile number is given. */
+  emailCode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Enter the 6-digit code sent to your email")
+    .optional(),
   projectType: z.enum(PROJECT_TYPES, "Please choose a project type"),
   projectLocation: trimmed(160).min(2, "Please enter the project location"),
   budgetRange: optionalText(60),
@@ -93,7 +132,16 @@ export const enquiryCreate = z.object({
   // Anti-spam: honeypot must stay empty; formStartedAt lets us reject instant bot submissions.
   website: z.string().max(0, "Spam detected").optional(),
   formStartedAt: z.number().int().positive().optional(),
-});
+  })
+  .superRefine((v, ctx) => {
+    if (!v.phone && !v.emailCode) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["emailCode"],
+        message: "Without an Indian mobile number, please verify your email with the code we send you",
+      });
+    }
+  });
 
 export const enquiryUpdate = z.object({ status: enquiryStatus });
 export const enquiryNoteCreate = z.object({ body: trimmed(4000).min(1, "Note cannot be empty") });
@@ -177,5 +225,9 @@ export const settingsInput = z.object({
   seoTitle: optionalText(70),
   seoDescription: optionalText(170),
   ogImageUrl: z.union([z.literal(""), imageUrl]).optional().nullable().transform((v) => (v ? v : null)),
+  // Enquiry limits (0 = unlimited)
+  maxEnquiriesPerEmail: z.number().int().min(0).max(1000).default(3),
+  maxEnquiriesPerPhone: z.number().int().min(0).max(1000).default(3),
+  enquiryLimitWindowDays: z.number().int().min(1).max(3650).default(30),
 });
 export type SettingsInput = z.infer<typeof settingsInput>;

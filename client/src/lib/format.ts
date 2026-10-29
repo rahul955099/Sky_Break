@@ -1,3 +1,4 @@
+import { API_ORIGIN } from "./api";
 import type { EnquiryStatus, ProjectCategory, ProjectStatus } from "../types/api";
 
 export const categoryLabel: Record<ProjectCategory, string> = {
@@ -37,6 +38,8 @@ export const formatDate = (iso: string, withTime = false) =>
 
 /** Builds responsive Unsplash URLs; other URLs pass through unchanged. */
 export function imageSrc(url: string, width: number) {
+  // Uploaded images live on the API host; prefix it when the API is cross-origin.
+  if (url.startsWith("/uploads/")) return `${API_ORIGIN}${url}`;
   if (!url.includes("images.unsplash.com")) return url;
   const u = new URL(url);
   u.searchParams.set("w", String(width));

@@ -7,6 +7,6 @@ if (!name.endsWith("_test")) {
   process.exit(1);
 }
 await prisma.$executeRawUnsafe(
-  'TRUNCATE "EnquiryNote", "Enquiry", "ProjectImage", "_ProjectServices", "Project", "Service", "Session", "AdminUser", "CompanySetting" CASCADE',
+  'TRUNCATE "EmailVerification", "EnquiryNote", "Enquiry", "ProjectImage", "_ProjectServices", "Project", "Service", "Session", "AdminUser", "CompanySetting" CASCADE',
 );
 await prisma.$disconnect();

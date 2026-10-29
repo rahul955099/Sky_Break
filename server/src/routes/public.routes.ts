@@ -1,8 +1,8 @@
 import { Router } from "express";
 import * as c from "../controllers/public.controller.js";
 import { validate } from "../middleware/validate.js";
-import { enquiryLimiter } from "../middleware/rateLimit.js";
-import { enquiryCreate, publicProjectQuery, slugParam } from "../schemas/index.js";
+import { emailCodeLimiter, enquiryLimiter } from "../middleware/rateLimit.js";
+import { emailCodeRequest, enquiryCreate, publicProjectQuery, slugParam } from "../schemas/index.js";
 
 export const publicRouter = Router();
 
@@ -12,4 +12,5 @@ publicRouter.get("/projects", validate(publicProjectQuery, "query"), c.listProje
 publicRouter.get("/projects/:slug", validate(slugParam, "params"), c.getProject);
 publicRouter.get("/services", c.listServices);
 publicRouter.get("/services/:slug", validate(slugParam, "params"), c.getService);
+publicRouter.post("/enquiries/email-code", emailCodeLimiter, validate(emailCodeRequest), c.requestEmailCode);
 publicRouter.post("/enquiries", enquiryLimiter, validate(enquiryCreate), c.submitEnquiry);

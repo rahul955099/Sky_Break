@@ -127,25 +127,31 @@ Sky_Break/
 # 1. Install dependencies (root, client and server workspaces)
 npm install
 
-# 2. Create your environment file and set a strong SESSION_SECRET
+# 2. Generate the Prisma database client (server/src/generated — not stored in Git)
+#    Needed before any database command below. Safe to run any time; it does not touch the database.
+npm run db:generate -w server
+
+# 3. Create your environment file and set a strong SESSION_SECRET
 Copy-Item .env.example .env
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 #    → paste the output as SESSION_SECRET in .env
 
-# 3. Start PostgreSQL (Docker Desktop must be running)
+# 4. Start PostgreSQL (Docker Desktop must be running)
 npm run db:up
 
-# 4. Apply migrations and load demo content
+# 5. Create the database tables (applies migrations), then load the starter content
 npm run db:deploy
 npm run db:seed
 
-# 5. Create your administrator account (prompts for a password)
+# 6. Create your administrator account (prompts for a password)
 #    First set ADMIN_EMAIL and ADMIN_NAME in .env
 npm run admin:create
 
-# 6. Run the API and website together
+# 7. Run the API and website together (checks the database first)
 npm run dev
 ```
+
+**Why this order matters:** the Prisma client (step 2) is generated code that the seed, admin and server scripts import, so it must exist before they run. The database must be running (step 4) before migrations can create its tables (step 5). The seed and the admin account both write rows into those tables, so they come after the migrations. Re-run step 2 whenever `server/prisma/schema.prisma` changes (`npm run build` also does it). `npm run db:deploy` only applies migrations that haven't run yet and never deletes data; `npm run db:seed` skips anything that already exists.
 
 Open **http://localhost:5173** for the website and **http://localhost:5173/admin** for the dashboard. The API runs on http://localhost:4000 and is proxied by Vite under `/api`.
 
@@ -162,7 +168,7 @@ All configuration lives in a single `.env` file at the project root (git-ignored
 | `SERVER_PORT` | | API port (default 4000) |
 | `CLIENT_URL` | | Comma-separated CORS allowlist of front-end origins |
 | `PUBLIC_SITE_URL` | | Canonical public URL used in the sitemap and robots.txt (e.g. `https://www.your-domain.example`) |
-| `TRUST_PROXY` | | `true` behind a reverse proxy/load balancer so rate limiting sees real client IPs |
+| `TRUST_PROXY` | | Number of trusted proxy hops in front of the API, so rate limiting sees real client IPs. Production (Netlify → Render) uses `TRUST_PROXY=2`: the Netlify proxy plus Render's load balancer. Local default `false`. |
 | `SERVE_CLIENT` | | `true` to serve the built front end from Express (single-server deployment) |
 | `ADMIN_EMAIL`, `ADMIN_NAME` | | Used by `npm run admin:create` |
 | `ADMIN_PASSWORD` | | Only for non-interactive setup; remove afterwards |
@@ -234,10 +240,20 @@ For automated environments you may set `ADMIN_PASSWORD` temporarily — remove i
 ## Running locally
 
 ```powershell
-npm run dev                 # API (tsx watch) + website (Vite) together
+npm run dev                 # checks the database, then runs API (tsx watch) + website (Vite) together
+npm run db:check            # run only the database pre-flight check
 npm run dev -w server       # API only  → http://localhost:4000
 npm run dev -w client       # website only → http://localhost:5173 (proxies /api, /uploads, /sitemap.xml, /robots.txt)
 ```
+
+**Before the servers start, `npm run dev` runs a database pre-flight check** (`scripts/dev-preflight.mjs`):
+
+- If PostgreSQL is reachable and every migration is applied, it prints `✔ Database ready … none pending` and starts.
+- If the local database container is stopped but Docker Desktop is running, it starts the container (`docker compose up -d db`) and waits for it.
+- If Docker Desktop is not running, migrations are pending, or the database is empty, it stops and tells you the exact command to run (`npm run db:deploy`, `npm run db:seed`, …). It never applies migrations or deletes data on its own.
+- Set `SKIP_DB_CHECK=1` to bypass it (for example `$env:SKIP_DB_CHECK=1; npm run dev` when working on the front end only).
+
+If the database goes down while the servers are running, API routes that need it return **503 `DATABASE_UNAVAILABLE`** (with `Retry-After: 30`) and the server logs one line naming the cause. Everything recovers automatically once PostgreSQL is back — no restart needed.
 
 Useful URLs: `/api/health`, `/sitemap.xml`, `/robots.txt`, `/admin/login`.
 
@@ -272,20 +288,23 @@ npm start
 
 ## Deployment
 
-**Recommended: one Node process behind HTTPS**
+**Production setup (Netlify front end + Render free API + Neon PostgreSQL + optional Brevo email)
+is documented step by step in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** — free-tier limitations,
+environment variables per host, migration behaviour, first-admin creation, and live verification checks.
 
-1. Provision PostgreSQL (managed service or your own server) and a Node.js 20.19+ host.
-2. Copy the repository, create `.env` with production values (`NODE_ENV=production`, a fresh `SESSION_SECRET`, production `DATABASE_URL`, `PUBLIC_SITE_URL`, `CLIENT_URL` = your site origin, `SERVE_CLIENT=true`, `TRUST_PROXY=true` if behind a proxy).
-3. `npm ci` → `npm run build` → `npm run db:deploy` → `npm run db:seed` (optional) → `npm run admin:create`.
-4. Run `npm start` under a process manager (systemd, PM2, a container, or your platform's service runner).
-5. Put it behind a reverse proxy or platform load balancer that terminates **HTTPS** (session cookies are `Secure` in production, so HTTPS is required for admin sign-in).
-6. Make sure `server/uploads/` is on persistent storage and backed up (or use object storage — see below).
+In short:
 
-**Alternative: static front end + separate API**
+- **Netlify** builds `client/` from `netlify.toml` and proxies `/api/*`, `/uploads/*`,
+  `/sitemap.xml` and `/robots.txt` to the API origin in `API_PROXY_ORIGIN` (first-party cookies,
+  strict CSP). Netlify does not run the Express server.
+- **Render** (free plan) runs the Express API from `render.yaml` (build → `prisma migrate deploy`
+  → start), health check `/health`, database health at `/api/health`. The free plan has no disk,
+  so uploaded images don't survive a redeploy or spin-down — use image URLs.
+- **Neon** provides PostgreSQL; `DATABASE_URL` is set only on Render.
+- **Brevo** (optional) sends email on port 2525, because Render's free plan blocks 25/465/587.
 
-Host `client/dist` on a static host/CDN, and the API separately. Configure the static host to route `/api/*`, `/uploads/*`, `/sitemap.xml` and `/robots.txt` to the API (same-origin proxying keeps cookies `SameSite=Strict` and CSP intact), and add an SPA fallback to `index.html`.
-
-**Docker** is used only for the development database. A production image can be built with a standard multi-stage Node Dockerfile running the steps above.
+Single-server alternative: `SERVE_CLIENT=true` serves the built site from Express (`npm run build`,
+`npm start`).
 
 ## Email notifications
 
@@ -356,8 +375,11 @@ Go to **Admin → Settings** and enter the verified company email, phone, WhatsA
 | `Invalid environment configuration` on start | Read the listed variables, compare with `.env.example`. `SESSION_SECRET` must be 32+ characters. |
 | `npm run db:up` → "port is already allocated" | Another PostgreSQL uses that port. Run with `$env:POSTGRES_HOST_PORT=5435; npm run db:up` and update `DATABASE_URL`. |
 | `Can't reach database server` | Start Docker Desktop, then `npm run db:up`; check `DATABASE_URL` host/port. |
+| "Services couldn't be loaded" / API returns **503 `DATABASE_UNAVAILABLE`** | PostgreSQL is not reachable. The API log says why (e.g. `ECONNREFUSED` = database not running). Locally: start Docker Desktop, run `npm run db:check`. Production: check the database service and `DATABASE_URL`. |
+| Website returns **503 `API_UNAVAILABLE`** for `/api/...` (local) | The API process is not running. Start everything with `npm run dev` from the project root. |
+| `npm run dev` stops with "migration(s) have not been applied" | Run `npm run db:deploy` (applies pending migrations; never deletes data), then `npm run dev` again. |
 | `Cannot find module …/generated/prisma/client.js` | Run `npm run db:generate -w server` (or `npm run build`). |
-| Admin login works on localhost but not on the live site | HTTPS is required in production (`Secure` cookie). Also check `TRUST_PROXY=true` behind a proxy. |
+| Admin login works on localhost but not on the live site | HTTPS is required in production (`Secure` cookie). Also check `TRUST_PROXY=2` (Netlify proxy + Render load balancer — see `render.yaml`). |
 | `CORS_REJECTED` / 403 from the API | Add the site origin to `CLIENT_URL` (comma-separated). |
 | "Security token missing or invalid" in the dashboard | Your session expired or was reset — refresh the page and sign in again. |
 | Images from a new host don't appear | Add the host to `img-src` in the CSP (`server/src/app.ts`). |

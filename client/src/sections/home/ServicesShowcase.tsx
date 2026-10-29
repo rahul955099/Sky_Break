@@ -11,6 +11,7 @@ import { SceneMount } from "../../components/three/SceneMount";
 import { useApi } from "../../hooks/useApi";
 import { useDeviceProfile } from "../../hooks/useDeviceProfile";
 import { serviceModelKind } from "../../three/serviceKinds";
+import { images } from "../../data/images";
 import type { ServiceSummary } from "../../types/api";
 
 const ServiceScene = lazy(() => import("../../three/ServiceScene"));
@@ -127,24 +128,37 @@ export function ServicesShowcase() {
                 onPointerLeave={() => (pointer.current = { x: 0, y: 0 })}
               >
                 <div className="perspective-floor absolute inset-x-[-30%] bottom-0 h-1/2 opacity-50" aria-hidden="true" />
+                {/* The concept model is decorative and independent of the services API: it renders
+                    (default tower) even while the list is loading or if the request fails. */}
                 <SceneMount
                   className="absolute inset-0"
-                  fallback={active ? <Img src={active.heroImageUrl} alt={active.heroImageAlt} width={900} frameClassName="h-full w-full opacity-80" /> : null}
-                >
-                  {(visible) =>
-                    active ? (
-                      <ServiceScene
-                        active={visible}
-                        reducedMotion={reduce}
-                        quality={profile.quality}
-                        kind={serviceModelKind(active.slug, active.icon)}
-                        pointer={pointer}
-                      />
-                    ) : null
+                  fallback={
+                    <Img
+                      src={active?.heroImageUrl ?? images.threeFallback}
+                      alt={active?.heroImageAlt ?? images.threeFallbackAlt}
+                      width={900}
+                      frameClassName="h-full w-full opacity-80"
+                    />
                   }
+                >
+                  {(visible) => (
+                    <ServiceScene
+                      active={visible}
+                      reducedMotion={reduce}
+                      quality={profile.quality}
+                      kind={active ? serviceModelKind(active.slug, active.icon) : "tower"}
+                      pointer={pointer}
+                    />
+                  )}
                 </SceneMount>
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink via-ink/80 to-transparent p-8 pt-24">
                   <AnimatePresence mode="wait">
+                    {!active && (
+                      <motion.div key="generic" initial={false} animate={{ opacity: 1 }}>
+                        <span className="text-xs font-semibold tracking-[0.2em] text-blue-300 uppercase">Skybreak Infra Pvt Ltd</span>
+                        <p className="mt-3 font-display text-2xl font-bold text-white">Construction &amp; infrastructure services</p>
+                      </motion.div>
+                    )}
                     {active && (
                       <motion.div
                         key={active.id}

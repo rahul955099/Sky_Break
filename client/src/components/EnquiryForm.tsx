@@ -1,8 +1,8 @@
-import { useId, useState, type ReactNode } from "react";
-import { useForm, type UseFormRegisterReturn } from "react-hook-form";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
-import { CircleAlert, CircleCheck } from "lucide-react";
+import { CircleAlert, CircleCheck, MailCheck } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import { enquirySchema, PROJECT_TYPES, START_OPTIONS, type EnquiryValues } from "../lib/enquirySchema";
@@ -16,6 +16,13 @@ const newKey = () =>
       );
 
 const freshAttempt = () => ({ startedAt: Date.now(), key: newKey() });
+
+interface CodeResponse {
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+  /** Only present in local development when email sending is disabled. */
+  devCode?: string;
+}
 
 function Field({
   label,
@@ -68,12 +75,28 @@ export function EnquiryForm({ projectSlug, defaultProjectType, compact }: Props)
   const [status, setStatus] = useState<"idle" | "success" | "error">("idle");
   const [serverMessage, setServerMessage] = useState<string>("");
   const [emailNotice, setEmailNotice] = useState(false);
+  // Email verification (required when no Indian mobile number is given)
+  const [codeState, setCodeState] = useState<{ sentTo: string; devCode?: string } | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeMessage, setCodeMessage] = useState("");
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setError,
+    trigger,
+    getValues,
+    setValue,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<EnquiryValues>({
     resolver: zodResolver(enquirySchema),
@@ -81,11 +104,40 @@ export function EnquiryForm({ projectSlug, defaultProjectType, compact }: Props)
     mode: "onTouched",
   });
 
+  const phoneValue = useWatch({ control, name: "phone" });
+  const emailValue = useWatch({ control, name: "email" });
+  const needsEmailCode = !phoneValue?.trim();
+  const codeMatchesEmail = Boolean(codeState && codeState.sentTo === (emailValue ?? "").trim().toLowerCase());
+
+  const sendCode = async () => {
+    setCodeMessage("");
+    if (!(await trigger("email"))) return;
+    const email = getValues("email").trim().toLowerCase();
+    setSendingCode(true);
+    try {
+      const res = await api.post<CodeResponse>("/enquiries/email-code", { email, website: getValues("website") });
+      setCodeState({ sentTo: email, devCode: res.data.devCode });
+      setCooldown(res.data.resendAfterSeconds);
+      setValue("emailCode", "");
+      clearErrors("emailCode");
+    } catch (err) {
+      const e = err instanceof ApiError ? err : new ApiError(0, "UNKNOWN", "We couldn't send the code. Please try again.");
+      if (e.code === "CODE_COOLDOWN") setCooldown(Number(e.extra?.retryAfter) || 60);
+      e.details?.forEach((d) => d.path === "email" && setError("email", { message: d.message }));
+      setCodeMessage(e.message);
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
   const onSubmit = handleSubmit(async (values) => {
     setStatus("idle");
     try {
       const res = await api.post<{ id: string; emailNotified: boolean }>("/enquiries", {
         ...values,
+        // With a mobile number the code isn't needed; don't let a stale one block the submission.
+        emailCode: values.phone?.trim() ? undefined : values.emailCode?.trim() || undefined,
+        phone: values.phone?.trim() || undefined,
         budgetRange: values.budgetRange || undefined,
         expectedStart: values.expectedStart || undefined,
         projectSlug,
@@ -97,12 +149,15 @@ export function EnquiryForm({ projectSlug, defaultProjectType, compact }: Props)
       setStatus("success");
       reset();
       setAttempt(freshAttempt);
+      setCodeState(null);
+      setCooldown(0);
     } catch (err) {
       const e = err instanceof ApiError ? err : new ApiError(0, "UNKNOWN", "Something went wrong. Please try again.");
       e.details?.forEach((d) => {
         if (d.path in enquirySchema.shape) setError(d.path as keyof EnquiryValues, { message: d.message });
       });
-      setServerMessage(e.message);
+      // Field problems are shown next to the fields; the banner only summarises them.
+      setServerMessage(e.code === "VALIDATION_ERROR" && e.details?.length ? "Please check the highlighted fields and try again." : e.message);
       setStatus("error");
     }
   });
@@ -150,9 +205,90 @@ export function EnquiryForm({ projectSlug, defaultProjectType, compact }: Props)
         <Field label="Email" id={id("email")} error={errors.email?.message}>
           <input type="email" className="field-input" autoComplete="email" inputMode="email" {...aria(id("email"), errors.email?.message)} {...reg("email")} />
         </Field>
-        <Field label="Phone" id={id("phone")} error={errors.phone?.message}>
-          <input type="tel" className="field-input" autoComplete="tel" inputMode="tel" {...aria(id("phone"), errors.phone?.message)} {...reg("phone")} />
+        <Field
+          label="Indian mobile number"
+          optional
+          id={id("phone")}
+          error={errors.phone?.message}
+          hint="10 digits starting with 6–9. No Indian mobile? Leave it blank and verify your email instead."
+        >
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4 text-[0.95rem] font-medium text-muted" aria-hidden="true">
+              +91
+            </span>
+            <input
+              type="tel"
+              className="field-input pl-14"
+              autoComplete="tel-national"
+              inputMode="tel"
+              placeholder="98450 12345"
+              {...aria(id("phone"), errors.phone?.message)}
+              {...reg("phone")}
+            />
+          </div>
         </Field>
+        <AnimatePresence initial={false}>
+          {needsEmailCode && (
+            <motion.div
+              key="verify-email"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.3 }}
+              className={`overflow-hidden ${compact ? "" : "sm:col-span-2"}`}
+            >
+              <div role="group" aria-labelledby={id("verify-title")} className="rounded-2xl border border-blue/20 bg-blue-50/60 p-4 sm:p-5">
+                <p id={id("verify-title")} className="flex items-center gap-2 font-semibold text-charcoal">
+                  <MailCheck className="h-4 w-4 text-blue" aria-hidden="true" /> Verify your email address
+                </p>
+                <p className="mt-1 text-sm text-muted">
+                  Without an Indian mobile number, we need to confirm your email. We&apos;ll send a 6-digit code to it.
+                </p>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
+                  <div className="flex-1">
+                    <label htmlFor={id("emailCode")} className="field-label">
+                      Verification code
+                    </label>
+                    <input
+                      className="field-input tracking-[0.3em] placeholder:tracking-normal"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="6-digit code"
+                      {...aria(id("emailCode"), errors.emailCode?.message)}
+                      {...reg("emailCode")}
+                    />
+                    {errors.emailCode && (
+                      <p id={`${id("emailCode")}-error`} className="field-error" role="alert">
+                        {errors.emailCode.message}
+                      </p>
+                    )}
+                  </div>
+                  <Button variant="secondary" className="sm:mt-[1.7rem]" onClick={sendCode} loading={sendingCode} disabled={cooldown > 0}>
+                    {cooldown > 0 ? `Resend in ${cooldown}s` : codeMatchesEmail ? "Resend code" : "Send code"}
+                  </Button>
+                </div>
+                {codeMatchesEmail && codeState && (
+                  <p className="mt-3 text-sm text-charcoal/80" role="status">
+                    Code sent to <strong className="break-all">{codeState.sentTo}</strong>. It expires in 10 minutes — check your spam folder too.
+                  </p>
+                )}
+                {codeMatchesEmail && codeState?.devCode && (
+                  <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-600/20">
+                    Development mode: email sending is off, so your code is <strong className="font-mono">{codeState.devCode}</strong>. This is never
+                    shown on the live site.
+                  </p>
+                )}
+                {codeState && !codeMatchesEmail && <p className="mt-3 text-sm text-amber-700">You changed your email address — please send a new code.</p>}
+                {codeMessage && (
+                  <p role="alert" className="mt-3 text-sm text-red-600">
+                    {codeMessage}
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <Field label="Project type" id={id("projectType")} error={errors.projectType?.message}>
           <select className="field-input" defaultValue={defaultProjectType ?? ""} {...aria(id("projectType"), errors.projectType?.message)} {...reg("projectType")}>
             <option value="" disabled>

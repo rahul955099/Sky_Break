@@ -10,7 +10,9 @@ import { brand } from "./brand";
 
 export const siteConfig = {
   /** Canonical production origin. Set VITE_PUBLIC_SITE_URL in .env. */
-  siteUrl: (import.meta.env.VITE_PUBLIC_SITE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
+  // Falls back to the current origin so a missing build variable never bakes "localhost" into
+  // canonical and Open Graph URLs.
+  siteUrl: (import.meta.env.VITE_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, ""),
   defaultOgImage: "https://images.unsplash.com/photo-1487958449943-2429e8be8625?auto=format&fit=crop&w=1200&h=630&q=80",
 };
 

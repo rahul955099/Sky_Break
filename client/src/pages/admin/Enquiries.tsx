@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import { useApi } from "../../hooks/useApi";
-import { qs } from "../../lib/api";
+import { apiUrl, qs } from "../../lib/api";
 import { AdminPageHeader } from "../../components/admin/AdminUi";
 import { EmptyState, ErrorState, Spinner } from "../../components/ui/misc";
 import { enquiryStatusLabel, enquiryStatusTone, formatDate } from "../../lib/format";
@@ -49,7 +49,7 @@ export default function Enquiries() {
         text="Project enquiries submitted through the website."
         actions={
           <a
-            href={`/api/admin/enquiries/export${qs({ status: status || undefined })}`}
+            href={apiUrl(`/admin/enquiries/export${qs({ status: status || undefined })}`)}
             className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-sm font-semibold text-navy ring-1 ring-line hover:bg-paper"
             download
           >

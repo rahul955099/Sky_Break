@@ -27,8 +27,11 @@ async function main() {
     createdServices++;
   }
 
+  // Illustrative sample projects are demo content. Production databases can skip them
+  // with SEED_SAMPLE_PROJECTS=false and receive only services and company settings.
+  const seedSamples = (process.env.SEED_SAMPLE_PROJECTS ?? "true").toLowerCase() !== "false";
   let createdProjects = 0;
-  for (const [index, p] of projects.entries()) {
+  for (const [index, p] of seedSamples ? projects.entries() : []) {
     const exists = await prisma.project.findUnique({ where: { slug: p.slug }, select: { id: true } });
     if (exists) continue;
     const { images, services: serviceSlugs, ...rest } = p;
@@ -45,7 +48,10 @@ async function main() {
     createdProjects++;
   }
 
-  console.log(`Seed complete: ${createdServices} services and ${createdProjects} sample projects created.`);
+  console.log(
+    `Seed complete: ${createdServices} services and ${createdProjects} sample projects created` +
+      (seedSamples ? "." : " (sample projects skipped: SEED_SAMPLE_PROJECTS=false)."),
+  );
 }
 
 main()

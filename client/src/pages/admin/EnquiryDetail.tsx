@@ -54,6 +54,8 @@ export default function EnquiryDetail() {
   };
 
   const rows: [string, string | null][] = [
+    ["Mobile", data.phone ?? "Not provided (email verified)"],
+    ["Email verified", data.emailVerified ? "Yes" : "No"],
     ["Project type", data.projectType],
     ["Location", data.projectLocation],
     ["Budget range", data.budgetRange],
@@ -85,9 +87,16 @@ export default function EnquiryDetail() {
               <a href={`mailto:${data.email}`} className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue">
                 <Mail className="h-4 w-4" aria-hidden="true" /> {data.email}
               </a>
-              <a href={telHref(data.phone)} className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue">
-                <Phone className="h-4 w-4" aria-hidden="true" /> {data.phone}
-              </a>
+              {data.phone && (
+                <a href={telHref(data.phone)} className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue">
+                  <Phone className="h-4 w-4" aria-hidden="true" /> {data.phone}
+                </a>
+              )}
+              {data.emailVerified && (
+                <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-600/20">
+                  Email verified
+                </span>
+              )}
             </div>
             <h2 className="mt-6 font-display font-bold">Message</h2>
             <p className="mt-2 leading-relaxed whitespace-pre-wrap text-charcoal/85">{data.message}</p>

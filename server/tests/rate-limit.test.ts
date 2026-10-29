@@ -14,8 +14,10 @@ afterAll(async () => {
 
 describe("rate limiting", () => {
   it("limits enquiry submissions per client", async () => {
-    for (let i = 0; i < 5; i++) await request(app).post("/api/enquiries").send(validEnquiry()).expect(201);
-    const blocked = await request(app).post("/api/enquiries").send(validEnquiry()).expect(429);
+    // Distinct emails/mobiles so the per-contact limits don't trigger before the IP limiter.
+    const unique = (i: number) => ({ ...validEnquiry(), email: `person${i}@example.com`, phone: `98450123${40 + i}` });
+    for (let i = 0; i < 5; i++) await request(app).post("/api/enquiries").send(unique(i)).expect(201);
+    const blocked = await request(app).post("/api/enquiries").send(unique(9)).expect(429);
     expect(blocked.body.error.code).toBe("RATE_LIMITED");
   });
 

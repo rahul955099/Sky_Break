@@ -8,7 +8,7 @@ export const PASSWORD = "Correct-Horse-42";
 
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE "EnquiryNote", "Enquiry", "ProjectImage", "_ProjectServices", "Project", "Service", "Session", "AdminUser", "CompanySetting" RESTART IDENTITY CASCADE',
+    'TRUNCATE "EmailVerification", "EnquiryNote", "Enquiry", "ProjectImage", "_ProjectServices", "Project", "Service", "Session", "AdminUser", "CompanySetting" RESTART IDENTITY CASCADE',
   );
 }
 
@@ -28,7 +28,7 @@ export async function login(email: string) {
 export const validEnquiry = () => ({
   fullName: "Test Person",
   email: "Person@Example.com",
-  phone: "+1 555 0100",
+  phone: "+91 98450 12345",
   projectType: "Residential construction",
   projectLocation: "Sample City",
   budgetRange: "",

@@ -6,7 +6,7 @@ import { HttpError, ok } from "../utils/http.js";
 const cookieOptions = (): CookieOptions => ({
   httpOnly: true,
   secure: isProduction,
-  sameSite: "strict",
+  sameSite: env.COOKIE_SAMESITE,
   path: "/",
   maxAge: env.SESSION_TTL_HOURS * 3600_000,
 });

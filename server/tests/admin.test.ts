@@ -203,10 +203,16 @@ describe("admin settings and uploads", () => {
         contactEmail: "hello@company.test",
         phone: "+00 000 000",
         socialLinks: { linkedin: "https://www.linkedin.com/company/test", facebook: "" },
+        maxEnquiriesPerEmail: 5,
+        maxEnquiriesPerPhone: 0,
+        enquiryLimitWindowDays: 7,
       })
       .expect(200);
+    const admin = await agent.get("/api/admin/settings").expect(200);
+    expect(admin.body.data).toMatchObject({ maxEnquiriesPerEmail: 5, maxEnquiriesPerPhone: 0, enquiryLimitWindowDays: 7 });
     const pub = await request(app).get("/api/settings").expect(200);
     expect(pub.body.data.contactEmail).toBe("hello@company.test");
+    expect(pub.body.data.maxEnquiriesPerEmail).toBeUndefined(); // limits are not public
     expect(pub.body.data.socialLinks.linkedin).toContain("linkedin.com");
     expect(pub.body.data.socialLinks.facebook).toBeNull();
   });

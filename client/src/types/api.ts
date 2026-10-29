@@ -110,6 +110,13 @@ export interface CompanySettings {
   ogImageUrl: string | null;
 }
 
+/** Settings as seen by admins, including enquiry limits (0 = unlimited). */
+export interface AdminCompanySettings extends CompanySettings {
+  maxEnquiriesPerEmail: number;
+  maxEnquiriesPerPhone: number;
+  enquiryLimitWindowDays: number;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -121,7 +128,9 @@ export interface EnquirySummary {
   id: string;
   fullName: string;
   email: string;
-  phone: string;
+  /** Indian mobile in +91XXXXXXXXXX form, or null when the email was verified instead. */
+  phone: string | null;
+  emailVerified?: boolean;
   projectType: string;
   projectLocation: string;
   status: EnquiryStatus;

@@ -9,7 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 async function fillValid(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/full name/i), "Asha Builder");
   await user.type(screen.getByLabelText(/^email/i), "asha@example.com");
-  await user.type(screen.getByLabelText(/^phone/i), "+1 555 0100");
+  await user.type(screen.getByLabelText(/indian mobile number/i), "98450 12345");
   await user.selectOptions(screen.getByLabelText(/project type/i), "Commercial construction");
   await user.type(screen.getByLabelText(/project location/i), "Sample City");
   await user.type(screen.getByLabelText(/tell us about your project/i), "We need a new office building.");
@@ -65,7 +65,68 @@ describe("EnquiryForm", () => {
     await fillValid(user);
     await user.click(screen.getByRole("button", { name: /send enquiry/i }));
     expect(await screen.findByText("Phone rejected by server")).toBeInTheDocument();
-    expect(screen.getByText("Some fields are invalid.")).toBeInTheDocument();
+    expect(screen.getByText("Please check the highlighted fields and try again.")).toBeInTheDocument();
+  });
+
+  it("rejects non-Indian and fake mobile numbers before submitting", async () => {
+    const fetchMock = mockFetch(() => ({}));
+    const user = userEvent.setup();
+    renderWithRouter(<EnquiryForm />);
+    const phone = screen.getByLabelText(/indian mobile number/i);
+    await user.type(phone, "+1 555 010 0100");
+    await user.tab();
+    expect(await screen.findByText(/valid Indian mobile number/i)).toBeInTheDocument();
+    await user.clear(phone);
+    await user.type(phone, "9999999999");
+    await user.tab();
+    expect(await screen.findByText(/doesn't look like a real mobile number/i)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("requires email verification when no mobile number is given, then submits with the code", async () => {
+    const calls: { url: string; body: Record<string, unknown> }[] = [];
+    mockFetch((_method, url, body) => {
+      calls.push({ url, body: body as Record<string, unknown> });
+      if (url.endsWith("/email-code")) return { json: { data: { expiresInSeconds: 600, resendAfterSeconds: 60, devCode: "482913" } } };
+      return { status: 201, json: { data: { id: "e2", emailNotified: false } } };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<EnquiryForm />);
+    await user.type(screen.getByLabelText(/full name/i), "Asha Builder");
+    await user.type(screen.getByLabelText(/^email/i), "Asha@Example.com");
+    await user.selectOptions(screen.getByLabelText(/project type/i), "Commercial construction");
+    await user.type(screen.getByLabelText(/project location/i), "Pune");
+    await user.type(screen.getByLabelText(/tell us about your project/i), "We need a new office building.");
+    await user.click(screen.getByRole("checkbox"));
+
+    // Submitting without a mobile number or code is blocked client-side.
+    await user.click(screen.getByRole("button", { name: /send enquiry/i }));
+    expect(await screen.findByText(/verify your email/i, { selector: "p.field-error" })).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+    expect(await screen.findByText(/code sent to/i)).toBeInTheDocument();
+    expect(screen.getByText("482913")).toBeInTheDocument(); // development-mode hint
+    expect(screen.getByRole("button", { name: /resend in \d+s/i })).toBeDisabled();
+    expect(calls[0]).toMatchObject({ url: "/api/enquiries/email-code", body: { email: "asha@example.com" } });
+
+    await user.type(screen.getByLabelText(/verification code/i), "482913");
+    await user.click(screen.getByRole("button", { name: /send enquiry/i }));
+    expect(await screen.findByText(/your enquiry has been received/i)).toBeInTheDocument();
+    expect(calls[1]!.body).toMatchObject({ emailCode: "482913" });
+    expect(calls[1]!.body.phone).toBeUndefined();
+  });
+
+  it("shows the server's limit message when too many enquiries were sent", async () => {
+    mockFetch(() => ({
+      status: 429,
+      json: { error: { code: "ENQUIRY_LIMIT", message: "We've already received the maximum number of enquiries.", details: [{ path: "email", message: "Enquiry limit reached for this email address" }] } },
+    }));
+    const user = userEvent.setup();
+    renderWithRouter(<EnquiryForm />);
+    await fillValid(user);
+    await user.click(screen.getByRole("button", { name: /send enquiry/i }));
+    expect(await screen.findByText("Enquiry limit reached for this email address")).toBeInTheDocument();
   });
 
   it("reports network failures helpfully", async () => {

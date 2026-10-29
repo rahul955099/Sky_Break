@@ -18,11 +18,32 @@ function getTransporter() {
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+/** Sends a one-time verification code. Returns false (never throws) on delivery failure. */
+export async function sendVerificationCodeEmail(to: string, code: string, companyName: string): Promise<boolean> {
+  if (!emailEnabled()) return false;
+  try {
+    await getTransporter().sendMail({
+      from: env.EMAIL_FROM,
+      to,
+      subject: `${code} is your ${companyName} verification code`,
+      text: `Your ${companyName} verification code is ${code}.
+
+It expires in 10 minutes. If you didn't request it, you can ignore this email.`,
+      html: `<p>Your ${escapeHtml(companyName)} verification code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p><p>It expires in 10 minutes. If you didn't request it, you can ignore this email.</p>`,
+    });
+    return true;
+  } catch (err) {
+    console.error("[email] Failed to send verification code:", (err as Error).message);
+    return false;
+  }
+}
+
 export interface EnquiryEmail {
   id: string;
   fullName: string;
   email: string;
-  phone: string;
+  phone: string | null;
+  emailVerified?: boolean;
   projectType: string;
   projectLocation: string;
   budgetRange: string | null;
@@ -36,7 +57,8 @@ export async function sendEnquiryNotification(enquiry: EnquiryEmail): Promise<bo
   const rows: [string, string | null][] = [
     ["Name", enquiry.fullName],
     ["Email", enquiry.email],
-    ["Phone", enquiry.phone],
+    ["Mobile", enquiry.phone ?? "Not provided"],
+    ["Email verified", enquiry.emailVerified ? "Yes" : "No"],
     ["Project type", enquiry.projectType],
     ["Location", enquiry.projectLocation],
     ["Budget range", enquiry.budgetRange],

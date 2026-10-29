@@ -4,7 +4,7 @@ import { E2E_ADMIN } from "./env";
 async function fillEnquiry(page: Page, name: string) {
   await page.getByLabel("Full name").fill(name);
   await page.getByLabel(/^Email/).fill("e2e.client@example.test");
-  await page.getByLabel(/^Phone/).fill("+1 555 0199");
+  await page.getByLabel("Indian mobile number").fill("98450 12399");
   await page.getByLabel("Project type").selectOption("Renovation / remodeling");
   await page.getByLabel("Project location").fill("Test Town");
   await page.getByLabel("Tell us about your project").fill("We'd like to renovate our kitchen and add a rear extension.");
@@ -38,6 +38,30 @@ test.describe.serial("enquiry → admin workflow", () => {
     await page.getByRole("button", { name: "Send enquiry" }).click();
     await expect(page.getByText("your enquiry has been received")).toBeVisible();
     await expect(page.getByText(/email confirmation is not enabled/i)).toBeVisible();
+  });
+
+  test("without a mobile number the email must be verified with a code", async ({ page }) => {
+    await page.goto("/contact");
+    await fillEnquiry(page, `${clientName} (email)`);
+    await page.getByLabel("Indian mobile number").fill("");
+    await page.getByLabel(/^Email/).fill("verify.me@example.test");
+    await expect(page.getByText("Verify your email address")).toBeVisible();
+
+    await page.getByRole("button", { name: "Send code" }).click();
+    await expect(page.getByText(/Code sent to/)).toBeVisible();
+    // Local development shows the code because email sending is disabled.
+    const code = (await page.locator("strong.font-mono").textContent())!.trim();
+    expect(code).toMatch(/^\d{6}$/);
+    await expect(page.getByRole("button", { name: /Resend in/ })).toBeDisabled();
+
+    await page.getByLabel("Verification code").fill(code === "000000" ? "111111" : "000000");
+    await page.waitForTimeout(2600);
+    await page.getByRole("button", { name: "Send enquiry" }).click();
+    await expect(page.locator("p.field-error", { hasText: /isn't correct/ })).toBeVisible();
+
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: "Send enquiry" }).click();
+    await expect(page.getByText("your enquiry has been received")).toBeVisible();
   });
 
   test("admin area is protected", async ({ page, request }) => {

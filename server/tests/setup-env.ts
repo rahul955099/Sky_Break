@@ -3,6 +3,8 @@ import { testDatabaseUrl } from "./test-db.js";
 process.env.DATABASE_URL = testDatabaseUrl();
 process.env.NODE_ENV = "test";
 process.env.EMAIL_PROVIDER = "none";
+// No live DNS in tests; the domain check is unit-tested with a fake resolver.
+process.env.EMAIL_DOMAIN_CHECK = "false";
 process.env.CLIENT_URL = "http://localhost:5173";
 process.env.PUBLIC_SITE_URL = "https://www.example-site.test";
 process.env.UPLOAD_DIR = "uploads-test";
